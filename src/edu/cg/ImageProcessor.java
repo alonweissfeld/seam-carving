@@ -36,7 +36,7 @@ public class ImageProcessor extends FunctioalForEachLoops {
 
 	// Changes the picture's hue - example
 	public BufferedImage changeHue() {
-		logger.log("Prepareing for hue changing...");
+		logger.log("Preparing for hue changing...");
 
 		int r = rgbWeights.redWeight;
 		int g = rgbWeights.greenWeight;
@@ -94,8 +94,27 @@ public class ImageProcessor extends FunctioalForEachLoops {
 	}
 	
 	public BufferedImage greyscale() {
-		// TODO: Implement this method, remove the exception.
-		throw new UnimplementedMethodException("greyscale");
+		logger.log("Preparing for greyscale change...");
+
+		// Get the RGB weights
+		int r = rgbWeights.redWeight;
+		int g = rgbWeights.greenWeight;
+		int b = rgbWeights.blueWeight;
+		int max = rgbWeights.maxWeight;
+
+		BufferedImage ans = newEmptyInputSizedImage();
+
+		forEach((y, x) -> {
+			Color c = new Color(workingImage.getRGB(x, y));
+			int greyCol = (c.getRed() * r) + (c.getGreen() * g) + (c.getBlue() * b);
+			greyCol = greyCol / (r + g + b);
+
+			Color res = new Color(greyCol, greyCol, greyCol);
+			ans.setRGB(x, y, res.getRGB());
+		});
+
+		logger.log("Changing to greyscale done!");
+		return ans;
 	}
 
 	public BufferedImage nearestNeighbor() {
