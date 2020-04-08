@@ -1,5 +1,6 @@
 package edu.cg;
 
+import java.awt.*;
 import java.awt.image.BufferedImage;
 
 public class SeamsCarver extends ImageProcessor {
@@ -47,8 +48,69 @@ public class SeamsCarver extends ImageProcessor {
 	}
 
 	private BufferedImage reduceImageWidth() {
-		// TODO: Implement this method, remove the exception.
-		throw new UnimplementedMethodException("reduceImageWidth");
+		// Calculate the gradient magnitude matrix.
+		long[][] E = new long[inHeight][inWidth];
+		long[][] M = new long[inHeight][inWidth];
+		int[][] path = new int[inHeight][inWidth];
+		BufferedImage greyscale = newEmptyInputSizedImage();
+
+		//
+		forEach((y, x) -> {
+			Color c =  new Color(workingImage.getRGB(x, y));
+			int greyVal = (c.getRed() + c.getGreen() + c.getBlue()) / 3;
+			Color greyCol = new Color(greyVal, greyVal, greyVal);
+			greyscale.setRGB(x, y, greyCol.getRGB());
+		});
+
+		forEach((y, x) -> {
+			int neighborX = (x < inWidth - 2) ? x + 1 : x - 1;
+			int neighborY = (y < inHeight - 2) ? y + 1 : y - 1;
+
+			int deltaX = greyscale.getRGB(neighborX, y) - greyscale.getRGB(x,y);
+			int deltaY = greyscale.getRGB(x , neighborY) - greyscale.getRGB(x,y);
+			E[y][x] = (int) Math.sqrt((1 << deltaX) + (1 << deltaY));
+			// TODO: add MASK values.
+			M[y][x] = E[y][x];
+
+		});
+
+		forEach((y, x) -> {
+			// Avoid calculating for base case - first row.
+			if (y != 0) {
+				long left = Long.MAX_VALUE;
+				long right = Long.MAX_VALUE;
+
+				// All cases
+				long center = M[y - 1][x] + Math.abs(greyscale.getRGB(x + 1, y) - greyscale.getRGB(x - 1, y));
+
+				// Excluding first column
+				if (x != 0) {
+					int cl = Math.abs(greyscale.getRGB(x + 1, y) - greyscale.getRGB(x - 1, y));
+					cl += Math.abs(greyscale.getRGB(x, y - 1) - greyscale.getRGB(x - 1, y));
+
+					left = M[y - 1][x - 1] + cl;
+				}
+
+				// Excluding last column
+				if (x != inWidth - 1) {
+					int cr = Math.abs(greyscale.getRGB(x + 1, y) - greyscale.getRGB(x - 1, y));
+					cr += Math.abs(greyscale.getRGB(x + 1, y) - greyscale.getRGB(x, y - 1));
+
+					right = M[y - 1][x + 1] + cr;
+				}
+
+				int minIdx = getMinimumIndex(left, center, right);
+
+				long val;
+				if (minIdx == -1) val = left;
+				else if (minIdx == 0) val = center;
+				else val = right;
+
+				M[y][x] = E[y][x] + val;
+				path[y][x] = minIdx; // Chosen parent direction.
+			}
+		});
+		// return...
 	}
 
 	private BufferedImage increaseImageWidth() {
@@ -71,5 +133,12 @@ public class SeamsCarver extends ImageProcessor {
 		// HINT: Once you remove (replicate) the chosen seams from the input image, you
 		// need to also remove (replicate) the matching entries from the mask as well.
 		throw new UnimplementedMethodException("getMaskAfterSeamCarving");
+	}
+
+	private int getMinimumIndex(long a, long b, long c) {
+		long minVal = Math.min(a, Math.min(b, c));
+		if (minVal == a) return -1;
+		if (minVal == b) return 0;
+		return 1;
 	}
 }
