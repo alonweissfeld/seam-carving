@@ -118,8 +118,24 @@ public class ImageProcessor extends FunctioalForEachLoops {
 	}
 
 	public BufferedImage nearestNeighbor() {
-		// TODO: Implement this method, remove the exception.
-		throw new UnimplementedMethodException("nearestNeighbor");
+		logger.log("Preparing for resizing by nearest neighbor...");
+
+		double widthRatio = (double) inWidth / outWidth;
+		double heightRatio = (double) inHeight / outHeight;
+
+		// Create a new image by the desired resize dimensions.
+		BufferedImage ans = newEmptyOutputSizedImage();
+		setForEachOutputParameters();
+
+		forEach((y, x) -> {
+			int col = (int) (x * widthRatio);
+			int row = (int) (y * heightRatio);
+			Color c = new Color(workingImage.getRGB(col, row));
+			ans.setRGB(x,y, c.getRGB());
+		});
+
+		logger.log("Resizing according to nearest neighbor done!");
+		return ans;
 	}
 
 }
