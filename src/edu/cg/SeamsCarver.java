@@ -11,7 +11,7 @@ public class SeamsCarver extends ImageProcessor {
 	 * energy and the parent direction.
 	 */
 	private static class EnergyPixel {
-		private int intensity; // gery value
+		private int intensity; // grey value
 		private long energy;
 		private path parent;
 
@@ -23,7 +23,7 @@ public class SeamsCarver extends ImageProcessor {
 		// Getters and setters for parent and energy
 		public int getIntensity() { return this.intensity; }
 		public long getEnergy() { return this.energy; }
-		public void setEnergy(long e) { this.energy = e;}
+		public void setEnergy(long e) { this.energy = e; }
 		public path getParent() { return this.parent; }
 		public void setParent(path p) { this.parent = p; }
 	}
@@ -40,6 +40,8 @@ public class SeamsCarver extends ImageProcessor {
 	boolean[][] imageMask;
 	int[][] greyscale;
 	EnergyPixel[][] costMatrix;
+	int k; // Number of seams that were handled.
+	BufferedImage tempImg;
 
 	public SeamsCarver(Logger logger, BufferedImage workingImage, int outWidth, RGBWeights rgbWeights,
 			boolean[][] imageMask) {
@@ -61,8 +63,7 @@ public class SeamsCarver extends ImageProcessor {
 		else
 			resizeOp = this::duplicateWorkingImage;
 
-		// TODO: You may initialize your additional fields and apply some preliminary
-		// calculations.
+		k = 0; // init number of seams
 
 		this.logger.log("preliminary calculations were ended.");
 	}
@@ -72,14 +73,19 @@ public class SeamsCarver extends ImageProcessor {
 	}
 
 	private BufferedImage reduceImageWidth() {
+		BufferedImage tempImg = newEmptyInputSizedImage();
 		BufferedImage result = newEmptyOutputSizedImage();
 
-		this.setGreyscale();
-		this.initCostMatrix();
-		this.calcForwardCostMatrix();
+		// Copy working image
+		forEach((y, x) -> tempImg.setRGB(x, y, workingImage.getRGB(x, y)));
+		this.tempImg = tempImg;
 
+		// Find all seams...
 		int[][] seams = this.findSeams();
-		// TODO: remove seams
+
+		// Trim temp image.
+		setForEachOutputParameters();
+		forEach((y, x) -> result.setRGB(x, y, tempImg.getRGB(x, y)));
 		return result;
 	}
 
@@ -128,33 +134,24 @@ public class SeamsCarver extends ImageProcessor {
 	private void initCostMatrix() {
 		// Calculate the gradient magnitude matrix.
 		EnergyPixel[][] E = new EnergyPixel[inHeight][inWidth];
-
-		if (this.greyscale == null) {
-			this.setGreyscale();
-		}
-
 		forEach((y, x) -> E[y][x] = new EnergyPixel(greyscale[y][x], this.calcEnergy(y, x)));
 		this.costMatrix = E;
 	}
 
 	private void calcForwardCostMatrix() {
-		forEach((y, x) -> {
-			// Avoid calculating for base case - first row.
-			if (y != 0) {
-				this.calcRecursiveCost(y, x);
-			}
-		}); // Done building dynamic programming matrix.
+		forEach(this::calcRecursiveCost);
+		// Done building dynamic programming matrix.
 	}
 
-	private void updateCostMatrix(int[] seam) {
+	private void updateMatrices(int[] seam) {
 		// Update gradient to pixels who are left to the seam
 		for (int y = 0; y < costMatrix.length; y++) {
 			// Shift left all pixels that are right to the seam
-
-			for (int x = seam[y]; x < inWidth; x++) {
+			for (int x = seam[y]; x < inWidth - k; x++) {
 				imageMask[y][x] = imageMask[y][x + 1];
 				greyscale[y][x] = greyscale[y][x + 1];
 				costMatrix[y][x] = costMatrix[y][x + 1];
+				tempImg.setRGB(x, y, tempImg.getRGB(x + 1, y));
 			}
 
 			int x = seam[y] - 1;
@@ -168,8 +165,8 @@ public class SeamsCarver extends ImageProcessor {
 	}
 
 	private long calcEnergy(int y, int x) {
-		int neighborX = (x < inWidth - 2) ? x + 1 : x - 1;
-		int neighborY = (y < inHeight - 2) ? y + 1 : y - 1;
+		int neighborX = (x < inWidth - 2 - k) ? x + 1 : x - 1;
+		int neighborY = (y < inHeight - 2 - k) ? y + 1 : y - 1;
 
 		long energy;
 		if (imageMask[y][x]) {
@@ -178,16 +175,21 @@ public class SeamsCarver extends ImageProcessor {
 
 		int deltaX = greyscale[y][neighborX] - greyscale[y][x];
 		int deltaY = greyscale[neighborY][x] - greyscale[y][x];
-		return (long) Math.sqrt((1 << deltaX) + (1 << deltaY));
+		return Math.abs(deltaX) + Math.abs(deltaY);
 	}
 
 	private int[][] findSeams() {
-		int [][] seams = new int[this.numOfSeams][inHeight];
-		for (int k = 0; k < this.numOfSeams; k++) {
-			int[] seam = findSeam();
-			seams[k] = seam;
+		int [][] seams = new int[numOfSeams][inHeight];
 
-			this.updateCostMatrix(seam);
+		this.setGreyscale();
+		this.initCostMatrix();
+		this.calcForwardCostMatrix();
+
+		for (k = 1; k < numOfSeams; ++k) {
+			int[] seam = findSeam();
+			seams[k - 1] = seam;
+
+			this.updateMatrices(seam);
 		}
 		return seams;
 	}
@@ -225,12 +227,17 @@ public class SeamsCarver extends ImageProcessor {
 	}
 
 	private void calcRecursiveCost(int y, int x) {
+		if (y == 0) {
+			return; // Avoid calculating for base case - first row.
+		}
+
 		long left = Long.MAX_VALUE;
 		long right = Long.MAX_VALUE;
 
 		// All cases
-		long center = costMatrix[y - 1][x].getEnergy()
-				+ Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
+		int cv = (x == 0 || x == inWidth - (k + 1))
+				? 0 : Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
+		long center = costMatrix[y - 1][x].getEnergy() + cv;
 
 		// Excluding first column
 		if (x != 0) {
@@ -241,7 +248,7 @@ public class SeamsCarver extends ImageProcessor {
 		}
 
 		// Excluding last column
-		if (x != inWidth - 1) {
+		if (x != inWidth - 1 - k) {
 			int cr = Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
 			cr += Math.abs(greyscale[y][x + 1] - greyscale[y - 1][x]);
 
