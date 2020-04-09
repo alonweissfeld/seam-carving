@@ -4,6 +4,29 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 
 public class SeamsCarver extends ImageProcessor {
+	private enum path {L, V, R};
+
+	/**
+	 * Represent a greyscale pixel with it's associated
+	 * energy and the parent direction.
+	 */
+	private static class EnergyPixel {
+		private int intensity; // gery value
+		private long energy;
+		private path parent;
+
+		EnergyPixel(int g, long e) {
+			this.intensity = g;
+			this.energy = e;
+		}
+
+		// Getters and setters for parent and energy
+		public int getIntensity() { return this.intensity; }
+		public long getEnergy() { return this.energy; }
+		public void setEnergy(long e) { this.energy = e;}
+		public path getParent() { return this.parent; }
+		public void setParent(path p) { this.parent = p; }
+	}
 
 	// MARK: An inner interface for functional programming.
 	@FunctionalInterface
@@ -15,7 +38,8 @@ public class SeamsCarver extends ImageProcessor {
 	private int numOfSeams;
 	private ResizeOperation resizeOp;
 	boolean[][] imageMask;
-	// TODO: Add some additional fields
+	int[][] greyscale;
+	EnergyPixel[][] costMatrix;
 
 	public SeamsCarver(Logger logger, BufferedImage workingImage, int outWidth, RGBWeights rgbWeights,
 			boolean[][] imageMask) {
@@ -48,69 +72,15 @@ public class SeamsCarver extends ImageProcessor {
 	}
 
 	private BufferedImage reduceImageWidth() {
-		// Calculate the gradient magnitude matrix.
-		long[][] E = new long[inHeight][inWidth];
-		long[][] M = new long[inHeight][inWidth];
-		int[][] path = new int[inHeight][inWidth];
-		BufferedImage greyscale = newEmptyInputSizedImage();
+		BufferedImage result = newEmptyOutputSizedImage();
 
-		//
-		forEach((y, x) -> {
-			Color c =  new Color(workingImage.getRGB(x, y));
-			int greyVal = (c.getRed() + c.getGreen() + c.getBlue()) / 3;
-			Color greyCol = new Color(greyVal, greyVal, greyVal);
-			greyscale.setRGB(x, y, greyCol.getRGB());
-		});
+		this.setGreyscale();
+		this.initCostMatrix();
+		this.calcForwardCostMatrix();
 
-		forEach((y, x) -> {
-			int neighborX = (x < inWidth - 2) ? x + 1 : x - 1;
-			int neighborY = (y < inHeight - 2) ? y + 1 : y - 1;
-
-			int deltaX = greyscale.getRGB(neighborX, y) - greyscale.getRGB(x,y);
-			int deltaY = greyscale.getRGB(x , neighborY) - greyscale.getRGB(x,y);
-			E[y][x] = (int) Math.sqrt((1 << deltaX) + (1 << deltaY));
-			// TODO: add MASK values.
-			M[y][x] = E[y][x];
-
-		});
-
-		forEach((y, x) -> {
-			// Avoid calculating for base case - first row.
-			if (y != 0) {
-				long left = Long.MAX_VALUE;
-				long right = Long.MAX_VALUE;
-
-				// All cases
-				long center = M[y - 1][x] + Math.abs(greyscale.getRGB(x + 1, y) - greyscale.getRGB(x - 1, y));
-
-				// Excluding first column
-				if (x != 0) {
-					int cl = Math.abs(greyscale.getRGB(x + 1, y) - greyscale.getRGB(x - 1, y));
-					cl += Math.abs(greyscale.getRGB(x, y - 1) - greyscale.getRGB(x - 1, y));
-
-					left = M[y - 1][x - 1] + cl;
-				}
-
-				// Excluding last column
-				if (x != inWidth - 1) {
-					int cr = Math.abs(greyscale.getRGB(x + 1, y) - greyscale.getRGB(x - 1, y));
-					cr += Math.abs(greyscale.getRGB(x + 1, y) - greyscale.getRGB(x, y - 1));
-
-					right = M[y - 1][x + 1] + cr;
-				}
-
-				int minIdx = getMinimumIndex(left, center, right);
-
-				long val;
-				if (minIdx == -1) val = left;
-				else if (minIdx == 0) val = center;
-				else val = right;
-
-				M[y][x] = E[y][x] + val;
-				path[y][x] = minIdx; // Chosen parent direction.
-			}
-		});
-		// return...
+		int[][] seams = this.findSeams();
+		// TODO: remove seams
+		return result;
 	}
 
 	private BufferedImage increaseImageWidth() {
@@ -135,10 +105,157 @@ public class SeamsCarver extends ImageProcessor {
 		throw new UnimplementedMethodException("getMaskAfterSeamCarving");
 	}
 
-	private int getMinimumIndex(long a, long b, long c) {
+	private path getPathByMinimum(long a, long b, long c) {
 		long minVal = Math.min(a, Math.min(b, c));
-		if (minVal == a) return -1;
-		if (minVal == b) return 0;
-		return 1;
+		if (minVal == a) return path.L;
+		if (minVal == b) return path.V;
+		return path.R;
+	}
+
+	private void setGreyscale() {
+		int[][] result = new int[inHeight][inWidth];
+
+		forEach((y, x) -> {
+			Color c =  new Color(workingImage.getRGB(x, y));
+			int greyVal = (c.getRed() + c.getGreen() + c.getBlue()) / 3;
+			Color greyCol = new Color(greyVal, greyVal, greyVal);
+			result[y][x] = greyCol.getRGB();
+		});
+
+		this.greyscale = result;
+	}
+
+	private void initCostMatrix() {
+		// Calculate the gradient magnitude matrix.
+		EnergyPixel[][] E = new EnergyPixel[inHeight][inWidth];
+
+		if (this.greyscale == null) {
+			this.setGreyscale();
+		}
+
+		forEach((y, x) -> E[y][x] = new EnergyPixel(greyscale[y][x], this.calcEnergy(y, x)));
+		this.costMatrix = E;
+	}
+
+	private void calcForwardCostMatrix() {
+		forEach((y, x) -> {
+			// Avoid calculating for base case - first row.
+			if (y != 0) {
+				this.calcRecursiveCost(y, x);
+			}
+		}); // Done building dynamic programming matrix.
+	}
+
+	private void updateCostMatrix(int[] seam) {
+		// Update gradient to pixels who are left to the seam
+		for (int y = 0; y < costMatrix.length; y++) {
+			// Shift left all pixels that are right to the seam
+
+			for (int x = seam[y]; x < inWidth; x++) {
+				imageMask[y][x] = imageMask[y][x + 1];
+				greyscale[y][x] = greyscale[y][x + 1];
+				costMatrix[y][x] = costMatrix[y][x + 1];
+			}
+
+			int x = seam[y] - 1;
+			costMatrix[y][x].setEnergy(this.calcEnergy(y, x));
+		}
+
+		for (int y = 1; y < costMatrix.length; y++) {
+			this.calcRecursiveCost(y, seam[y] - 1);
+			this.calcRecursiveCost(y, seam[y]);
+		}
+	}
+
+	private long calcEnergy(int y, int x) {
+		int neighborX = (x < inWidth - 2) ? x + 1 : x - 1;
+		int neighborY = (y < inHeight - 2) ? y + 1 : y - 1;
+
+		long energy;
+		if (imageMask[y][x]) {
+			return Long.MIN_VALUE;
+		}
+
+		int deltaX = greyscale[y][neighborX] - greyscale[y][x];
+		int deltaY = greyscale[neighborY][x] - greyscale[y][x];
+		return (long) Math.sqrt((1 << deltaX) + (1 << deltaY));
+	}
+
+	private int[][] findSeams() {
+		int [][] seams = new int[this.numOfSeams][inHeight];
+		for (int k = 0; k < this.numOfSeams; k++) {
+			int[] seam = findSeam();
+			seams[k] = seam;
+
+			this.updateCostMatrix(seam);
+		}
+		return seams;
+	}
+
+	private int[] findSeam() {
+		int[] seam = new int[inHeight];
+
+		// Get the index of the minimum cost from the
+		// last row of the cost matrix.
+		int j = inHeight - 1;
+		int idx = this.findMinCostIdx(this.costMatrix[j]);
+
+		for (int i = seam.length - 1; i >= 0; i--) {
+			seam[i] = idx;
+			path p = costMatrix[j--][idx].getParent();
+			if (p == path.L) { idx -= 1; }
+			else if (p == path.R) { idx += 1; }
+		}
+
+		return seam;
+	}
+
+	private int findMinCostIdx(EnergyPixel[] arr) {
+		int minIdx = 0;
+		long min = arr[0].getEnergy();
+
+		for (int i = 1; i <arr.length; i++) {
+			if (arr[i].getEnergy() < min) {
+				min = arr[i].getEnergy();
+				minIdx = i;
+			}
+		}
+
+		return minIdx;
+	}
+
+	private void calcRecursiveCost(int y, int x) {
+		long left = Long.MAX_VALUE;
+		long right = Long.MAX_VALUE;
+
+		// All cases
+		long center = costMatrix[y - 1][x].getEnergy()
+				+ Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
+
+		// Excluding first column
+		if (x != 0) {
+			int cl = Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
+			cl += Math.abs(greyscale[y - 1][x] - greyscale[y][x - 1]);
+
+			left = costMatrix[y - 1][x - 1].getEnergy() + cl;
+		}
+
+		// Excluding last column
+		if (x != inWidth - 1) {
+			int cr = Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
+			cr += Math.abs(greyscale[y][x + 1] - greyscale[y - 1][x]);
+
+			right = costMatrix[y - 1][x + 1].getEnergy() + cr;
+		}
+
+		path p = getPathByMinimum(left, center, right);
+
+		long val;
+		if (p == path.L) val = left;
+		else if (p == path.V) val = center;
+		else val = right;
+
+		costMatrix[y][x].setEnergy(costMatrix[y][x].getEnergy() + val);
+		costMatrix[y][x].setParent(p);
 	}
 }
