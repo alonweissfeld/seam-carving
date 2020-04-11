@@ -147,12 +147,7 @@ public class SeamsCarver extends ImageProcessor {
 		logger.log("Initiating cost matrix...");
 		EnergyPixel[][] E = new EnergyPixel[height][width];
 
-		for (int y = 0; y < height; ++y) {
-			for (int x = 0; x < width; ++x) {
-				E[y][x] = new EnergyPixel(greyscale[y][x], this.calcEnergy(y, x));
-			}
-		}
-
+		forEach((y, x) -> E[y][x] = new EnergyPixel(greyscale[y][x], this.calcEnergy(y, x)));
 		logger.log("Done initiating cost matrix by pixel energies.");
 		this.costMatrix = E;
 	}
