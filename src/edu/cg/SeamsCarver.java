@@ -406,29 +406,28 @@ public class SeamsCarver extends ImageProcessor {
 		long left = Integer.MAX_VALUE;
 		long right = Integer.MAX_VALUE;
 
-		// All cases
 		boolean isBorder = (x == 0 || x == (this.costMatrix[0].length - 1));
-
 		int cv = isBorder ? 0 : Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
+
 		long center = costMatrix[y - 1][x].getEnergy() + cv;
 
 		// Excluding first column
 		if (x != 0) {
-			int cl = isBorder ? 0 : Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
-			cl += Math.abs(greyscale[y - 1][x] - greyscale[y][x - 1]);
-
+			int newTopLeftEdge = Math.abs(greyscale[y - 1][x] - greyscale[y][x - 1]);
+			int cl = (isBorder ? 0 : cv) + newTopLeftEdge;
 			left = costMatrix[y - 1][x - 1].getEnergy() + cl;
 		}
 
 		// Excluding last column
 		if (x != (this.costMatrix[0].length - 1)) {
 			// There is no left edge for the first column.
-			int cr = isBorder ? 0 : Math.abs(greyscale[y][x + 1] - greyscale[y][x - 1]);
-			cr += Math.abs(greyscale[y][x + 1] - greyscale[y - 1][x]);
+			int newTopRightEdge = Math.abs(greyscale[y][x + 1] - greyscale[y - 1][x]);
+			int cr = (isBorder ? 0 : cv) + newTopRightEdge;
 
 			right = costMatrix[y - 1][x + 1].getEnergy() + cr;
 		}
 
+		// Get the parent of the minimum value from the different directions.
 		path p = getPathByMinimum(left, center, right);
 
 		long val;
@@ -436,6 +435,7 @@ public class SeamsCarver extends ImageProcessor {
 		else if (p == path.V) val = center;
 		else val = right;
 
+		// Set the calculated energy and parent of this coordinate.
 		costMatrix[y][x].setEnergy(costMatrix[y][x].getEnergy() + val);
 		costMatrix[y][x].setParent(p);
 	}
