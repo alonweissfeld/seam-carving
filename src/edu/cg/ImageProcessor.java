@@ -127,8 +127,12 @@ public class ImageProcessor extends FunctioalForEachLoops {
 		setForEachOutputParameters();
 
 		forEach((y, x) -> {
-			int col = (int) Math.round(x * widthRatio);
-			int row = (int) Math.round(y * heightRatio);
+			double tempCol = x * widthRatio;
+			double tempRow = y * heightRatio;
+
+			// Avoid up rounding the borders.
+			int col = (x < outWidth - 1) ? (int) Math.round(tempCol) : (int) tempCol;
+			int row = (y < outHeight - 1) ? (int) Math.round(tempRow) : (int) tempRow;
 			Color c = new Color(workingImage.getRGB(col, row));
 			ans.setRGB(x,y, c.getRGB());
 		});
