@@ -36,13 +36,13 @@ public class SeamsCarver extends ImageProcessor {
 	private int numOfSeams;
 	private ResizeOperation resizeOp;
 	boolean[][] imageMask;
-	int[][] greyscale;
-	EnergyPixel[][] costMatrix;
-	int k; // Number of seams that were handled.
-	boolean opReduce;
-	BufferedImage tempImg;
-	int[][] shiftedSeams;
-	int[][] increasedSeams;
+	int[][] greyscale;	        // Represents the greyscale values of the image.
+	EnergyPixel[][] costMatrix; // Represents the dynamic cost matrix.
+	int k; 				        // Number of seams that were handled so far.
+	boolean opReduce; 	        // Helper flag to indicate if the current is 'reduce' operation.
+	BufferedImage tempImg;      // Helper temporary buffered image used in 'reduce' operation.
+	int[][] shiftedSeams;       // Represents the indexes of the seams in relation to the dynamic cost matrix.
+	int[][] increasedSeams;     // Represents the indexes of the seams in the increased image.
 
 	public SeamsCarver(Logger logger, BufferedImage workingImage, int outWidth, RGBWeights rgbWeights,
 			boolean[][] imageMask) {
@@ -243,7 +243,6 @@ public class SeamsCarver extends ImageProcessor {
 		int neighborX = (x < inWidth - 1 - k) ? x + 1 : x - 1;
 		int neighborY = (y < inHeight - 1) ? y + 1 : y - 1;
 
-		long energy;
 		if (imageMask[y][x]) {
 			return Integer.MIN_VALUE;
 		}
