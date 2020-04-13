@@ -12,17 +12,14 @@ public class SeamsCarver extends ImageProcessor {
 	 * energy and the parent direction.
 	 */
 	private static class EnergyPixel {
-		private int originalX; // grey value
 		private long energy;
 		private path parent;
 
-		EnergyPixel(int x, long e) {
-			this.originalX = x;
+		EnergyPixel(long e) {
 			this.energy = e;
 		}
 
 		// Getters and setters for parent and energy
-		public int getOriginalX() { return this.originalX; }
 		public long getEnergy() { return this.energy; }
 		public void setEnergy(long e) { this.energy = e; }
 		public path getParent() { return this.parent; }
@@ -171,7 +168,7 @@ public class SeamsCarver extends ImageProcessor {
 	private void initCostMatrix(int height, int width) {
 		logger.log("Initiating cost matrix...");
 		EnergyPixel[][] E = new EnergyPixel[height][width];
-		forEach((y, x) -> E[y][x] = new EnergyPixel(greyscale[y][x], this.calcEnergy(y, x)));
+		forEach((y, x) -> E[y][x] = new EnergyPixel(this.calcEnergy(y, x)));
 
 		logger.log("Done initiating cost matrix by pixel energies.");
 		this.costMatrix = E;
