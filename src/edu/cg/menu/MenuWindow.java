@@ -243,17 +243,52 @@ public class MenuWindow extends JFrame implements Logger {
 	}
 
 	public void removeObjectFromImage(boolean[][] srcMask) {
+		BufferedImage result = duplicateImage(workingImage);
+		boolean[][] tempMask = duplicateMask(srcMask);
 
-		// TODO: Implement this method, remove the exception.
-		throw new UnimplementedMethodException("removeObjectFromImage");
+		int width = workingImage.getWidth();
+		RGBWeights rgbWeights = colorMixer.getRGBWeights();
 
-		// TODO: After completing the implementation - make sure you present the result.
-		// Just uncomment the following line, and replace 'result' with your
-		// result variable.
-		// present(result, "Image After Object Removal");
+		// Find the maximum number of true values in a row.
+		int maxCount = getMaxTrueValuesInMask(tempMask);
+
+		// Bound the number of seams
+		while (maxCount > 0) {
+			System.out.println("Current maxCount: " + maxCount);
+			int numOfSeamsToReduce = Math.min(maxCount, (width / 3) - 1);
+			int outWidth = width - numOfSeamsToReduce;
+			System.out.println("numOfSeams to reduce: " + numOfSeamsToReduce);
+			SeamsCarver sc = new SeamsCarver(this, result, outWidth,
+					rgbWeights, tempMask);
+
+			// Reduce image.
+			result = sc.resize();
+			tempMask = sc.getMaskAfterSeamCarving();
+			maxCount = getMaxTrueValuesInMask(tempMask);
+			System.out.println("After, maxCount: " + maxCount);
+		}
+
+		// Increase the image back to it's original size.
+		SeamsCarver sc = new SeamsCarver(this, result, width, rgbWeights, duplicateMask());
+		result = sc.resize();
+		present(result, "Image After Object Removal");
 	}
 
 	public void maskImage() {
 		new MaskPainterWindow(duplicateImage(), "Mask Painter", this).setVisible(true);
+	}
+
+	private int getMaxTrueValuesInMask(boolean[][] mask) {
+		int maxCount = 0;
+		for (boolean[] row : mask) {
+			int currentRowCounter = 0;
+			for (boolean col : row) {
+				if (col) currentRowCounter++;
+			}
+
+			if (currentRowCounter > maxCount) maxCount = currentRowCounter;
+		}
+
+		return maxCount;
 	}
 }
