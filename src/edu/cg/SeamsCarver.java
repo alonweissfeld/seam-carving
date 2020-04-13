@@ -140,13 +140,6 @@ public class SeamsCarver extends ImageProcessor {
 		// need to also remove (replicate) the matching entries from the mask as well.
 	}
 
-	private path getPathByMinimum(long a, long b, long c) {
-		long minVal = Math.min(a, Math.min(b, c));
-		if (minVal == a) return path.L;
-		if (minVal == b) return path.V;
-		return path.R;
-	}
-
 	private void setGreyscale() {
 		logger.log("Converting to greyscale...");
 		int[][] result = new int[inHeight][inWidth];
@@ -212,7 +205,7 @@ public class SeamsCarver extends ImageProcessor {
 
 		long energy;
 		if (imageMask[y][x]) {
-			return Long.MIN_VALUE;
+			return Integer.MIN_VALUE;
 		}
 
 		int deltaX = greyscale[y][neighborX] - greyscale[y][x];
@@ -365,5 +358,12 @@ public class SeamsCarver extends ImageProcessor {
 
 		costMatrix[y][x].setEnergy(costMatrix[y][x].getEnergy() + val);
 		costMatrix[y][x].setParent(p);
+	}
+
+	private path getPathByMinimum(long a, long b, long c) {
+		long minVal = Math.min(a, Math.min(b, c));
+		if (minVal == a) return path.L;
+		if (minVal == b) return path.V;
+		return path.R;
 	}
 }
