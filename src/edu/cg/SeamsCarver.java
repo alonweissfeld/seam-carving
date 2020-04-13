@@ -99,11 +99,6 @@ public class SeamsCarver extends ImageProcessor {
 		BufferedImage result = newEmptyOutputSizedImage();
 		boolean[][] tempMask = new boolean[outHeight][outWidth];
 
-		// Copy working image
-		BufferedImage tempImg = newEmptyInputSizedImage();
-		forEach((y, x) -> tempImg.setRGB(x, y, workingImage.getRGB(x, y)));
-		this.tempImg = tempImg;
-
 		// Find all seams...
 		int[][] seams = this.findSeams();
 
@@ -202,7 +197,11 @@ public class SeamsCarver extends ImageProcessor {
 			for (int x = seam[y]; x < inWidth - k; x++) {
 				imageMask[y][x] = imageMask[y][x + 1];
 				greyscale[y][x] = greyscale[y][x + 1];
-				tempImg.setRGB(x, y, tempImg.getRGB(x + 1, y));
+
+				if (outWidth < inWidth) {
+					// Relevant only for when reducing the image.
+					tempImg.setRGB(x, y, tempImg.getRGB(x + 1, y));
+				}
 			}
 		}
 
@@ -244,7 +243,7 @@ public class SeamsCarver extends ImageProcessor {
 			int[] seam = findSeam();
 			this.updateMatrices(seam);
 
-			seams[k - 1] = this.restoreSeamIdxs(seam);
+			seams[k - 1] = this.restoreSeamIdxs(seam, seams);
 			increasedSeams[k - 1] = this.calculateIncreasedSeamIdxs(seam);
 			shiftedSeams[k - 1] = seam;
 		}
@@ -287,16 +286,14 @@ public class SeamsCarver extends ImageProcessor {
 		// shift by 1 the previous ones.
 		for (int i = 0; i < seam.length; i++) {
 			for (int[] s : increasedSeams) {
-				if (expected[i] <= s[i]) {
-					s[i] += 1;
-				}
+				if (expected[i] <= s[i]) s[i]++;
 			}
 		}
 
 		return expected;
 	}
 
-	private int[] restoreSeamIdxs(int[] seam) {
+	private int[] restoreSeamIdxs(int[] seam, int[][] prevSeams) {
 		int[] restored = new int[seam.length];
 
 		for (int i = 0; i < seam.length; i++) {
@@ -306,7 +303,13 @@ public class SeamsCarver extends ImageProcessor {
 			}
 		}
 
-		// TODO: Shift right old seams becuase new one has lower x.
+		// Shift right all seams that have higher x's compared
+		// to the new seam.
+		for (int i = 0; i < seam.length; i++) {
+			for (int[] s : prevSeams) {
+				if (restored[i] <= s[i]) restored[i]++;
+			}
+		}
 
 		return restored;
 	}
