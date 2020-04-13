@@ -44,6 +44,7 @@ public class SeamsCarver extends ImageProcessor {
 	int k; // Number of seams that were handled.
 	BufferedImage tempImg;
 	int[][] shiftedSeams;
+	int[][] increasedSeams;
 
 	public SeamsCarver(Logger logger, BufferedImage workingImage, int outWidth, RGBWeights rgbWeights,
 			boolean[][] imageMask) {
@@ -105,29 +106,25 @@ public class SeamsCarver extends ImageProcessor {
 
 		// Find all seams...
 		int[][] seams = this.findSeams();
-		System.out.println("found seams.");
 
-		setForEachOutputParameters();
-//		forEach((y, x) -> {
-//			if (x == seams[y])
-//		});
-
-
-		forEach((y, x) -> {
+		for (int y = 0; y < outHeight; y++) {
 			int indent = 0;
-			for (int i = 0 ; i < seams.length ; i++){
-				if (x > seams[i][y]){
-					indent++;
-				}
-			}
-			result.setRGB(x, y, workingImage.getRGB(x - indent, y));
-			tempMask[y][x] = imageMask[y][x-indent];
+			for (int x = 0; x < outWidth; x++) {
+				result.setRGB(x, y, workingImage.getRGB(x - indent, y));
+				tempMask[y][x] = imageMask[y][x - indent];
 
-			// [x,Y,Z,W,h] ==> [x,Y,Y,Z,Z,W,W,h]
-		});
+				if (isPartOfSeam(x, y)) indent++;
+			}
+		}
+
 		imageMask = tempMask;
 		logger.log("Done increase image.");
 		return result;
+	}
+
+	private boolean isPartOfSeam(int x, int row) {
+		for (int[] seam : increasedSeams) if (seam[row] == x) return true;
+		return false;
 	}
 
 	public BufferedImage showSeams(int seamColorRGB) {
@@ -179,8 +176,8 @@ public class SeamsCarver extends ImageProcessor {
 	private void initCostMatrix(int height, int width) {
 		logger.log("Initiating cost matrix...");
 		EnergyPixel[][] E = new EnergyPixel[height][width];
-
 		forEach((y, x) -> E[y][x] = new EnergyPixel(greyscale[y][x], this.calcEnergy(y, x)));
+
 		logger.log("Done initiating cost matrix by pixel energies.");
 		this.costMatrix = E;
 	}
@@ -215,7 +212,7 @@ public class SeamsCarver extends ImageProcessor {
 
 	private long calcEnergy(int y, int x) {
 		int neighborX = (x < inWidth - 1 - k) ? x + 1 : x - 1;
-		int neighborY = (y < inHeight - 1 - k) ? y + 1 : y - 1;
+		int neighborY = (y < inHeight - 1) ? y + 1 : y - 1;
 
 		long energy;
 		if (imageMask[y][x]) {
@@ -230,17 +227,25 @@ public class SeamsCarver extends ImageProcessor {
 	private int[][] findSeams() {
 		logger.log("Searching seams...");
 		shiftedSeams = new int[numOfSeams][inHeight];
+		increasedSeams = new int[numOfSeams][inHeight];
 		int [][] seams = new int[numOfSeams][inHeight];
 
 		this.setGreyscale();
 		this.initCostMatrix(inHeight, inWidth);
 		this.calcForwardCostMatrix();
 
+		for (int[] shiftedSeam : shiftedSeams) {
+			for (int j = 0; j < shiftedSeam.length; j++) {
+				shiftedSeam[j] = Integer.MAX_VALUE;
+			}
+		}
+
 		for (k = 1; k <= numOfSeams; ++k) {
 			int[] seam = findSeam();
 			this.updateMatrices(seam);
 
-			seams[k - 1] = this.restoreSeamIdxes(seam);
+			seams[k - 1] = this.restoreSeamIdxs(seam);
+			increasedSeams[k - 1] = this.calculateIncreasedSeamIdxs(seam);
 			shiftedSeams[k - 1] = seam;
 		}
 		logger.log("Done searching for new seams.");
@@ -267,16 +272,42 @@ public class SeamsCarver extends ImageProcessor {
 		return seam;
 	}
 
-	private int[] restoreSeamIdxes(int[] seam){
-		int[] restored = new int[seam.length];
+	private int[] calculateIncreasedSeamIdxs(int[] seam){
+		int[] expected = new int[seam.length];
+
 		for (int i = 0; i < seam.length; i++){
-			restored[i] = seam[i];
-			for (int j = 0; j < shiftedSeams.length; j++){
-				if (seam[i] >= shiftedSeams[j][i]) {
-					restored[i]++;
+			int s = 0; // Number of seams preceding current seam
+			for (int[] shiftedSeam : shiftedSeams) {
+				if (seam[i] >= shiftedSeam[i]) s++;
+			}
+			expected[i] = seam[i] + (2 * s);
+		}
+
+		// We might have found the new seam in a smaller x to the the previous ones
+		// shift by 1 the previous ones.
+		for (int i = 0; i < seam.length; i++) {
+			for (int[] s : increasedSeams) {
+				if (expected[i] <= s[i]) {
+					s[i] += 1;
 				}
 			}
 		}
+
+		return expected;
+	}
+
+	private int[] restoreSeamIdxs(int[] seam) {
+		int[] restored = new int[seam.length];
+
+		for (int i = 0; i < seam.length; i++) {
+			restored[i] = seam[i];
+			for (int[] shiftedSeam : shiftedSeams) {
+				if (seam[i] >= shiftedSeam[i]) restored[i]++;
+			}
+		}
+
+		// TODO: Shift right old seams becuase new one has lower x.
+
 		return restored;
 	}
 
