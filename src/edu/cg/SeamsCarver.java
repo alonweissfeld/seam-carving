@@ -39,6 +39,7 @@ public class SeamsCarver extends ImageProcessor {
 	int[][] greyscale;
 	EnergyPixel[][] costMatrix;
 	int k; // Number of seams that were handled.
+	boolean opReduce;
 	BufferedImage tempImg;
 	int[][] shiftedSeams;
 	int[][] increasedSeams;
@@ -78,27 +79,34 @@ public class SeamsCarver extends ImageProcessor {
 		BufferedImage result = newEmptyOutputSizedImage();
 
 		// Copy working image
+		opReduce = true;
 		forEach((y, x) -> tempImg.setRGB(x, y, workingImage.getRGB(x, y)));
 		this.tempImg = tempImg;
 
-		// Find all seams...
-		int[][] seams = this.findSeams();
+		// Find all seams.
+		// During the process of finding new seams, we reduce the previous
+		// ones and therefore resizing the image accordingly.
+		this.findSeams();
 
-		// Trim temp image.
+		// Trim temp image to desired output size.
 		setForEachOutputParameters();
 		forEach((y, x) -> result.setRGB(x, y, tempImg.getRGB(x, y)));
 		logger.log("Done reducing image.");
 		return result;
 	}
 
+
 	private BufferedImage increaseImageWidth() {
 		logger.log("Starting to increase image...");
 		BufferedImage result = newEmptyOutputSizedImage();
 		boolean[][] tempMask = new boolean[outHeight][outWidth];
 
-		// Find all seams...
-		int[][] seams = this.findSeams();
+		// Find all seams.
+		this.findSeams();
 
+		// Iterate all pixels in the desired output image.
+		// Upon encountering a seam, indent the x's coordinate
+		// from which to get the RGB value.
 		for (int y = 0; y < outHeight; y++) {
 			int indent = 0;
 			for (int x = 0; x < outWidth; x++) {
@@ -114,32 +122,41 @@ public class SeamsCarver extends ImageProcessor {
 		return result;
 	}
 
+	/**
+	 * Returns true of a given x coordinate is a part of a seam.
+	 */
 	private boolean isPartOfSeam(int x, int row) {
 		for (int[] seam : increasedSeams) if (seam[row] == x) return true;
 		return false;
 	}
 
 	public BufferedImage showSeams(int seamColorRGB) {
-		// TODO: Implement this method (bonus), remove the exception.
-		throw new UnimplementedMethodException("showSeams");
+		BufferedImage result = newEmptyInputSizedImage();
+		forEach((y, x) -> result.setRGB(x, y, workingImage.getRGB(x, y)));
+
+		// Locate the relevant seams pixels and color the image accordingly.
+		int[][] seams = this.findSeams();
+		for (int y = 0; y < seams[0].length; y++) {
+			for (int[] s : seams) {
+				result.setRGB(s[y] ,y, seamColorRGB);
+			}
+		}
+
+		return result;
 	}
 
 	public boolean[][] getMaskAfterSeamCarving() {
 		boolean[][] mask = new boolean[outHeight][outWidth];
+		// The image mask values are already updated.
+		// Just trim it to the correct matrix size.
 		setForEachOutputParameters();
 		forEach((y, x) -> mask[y][x] = imageMask[y][x]);
 		return mask;
-
-		// TODO: Implement this method, remove the exception.
-		// This method should return the mask of the resize image after seam carving.
-		// Meaning, after applying Seam Carving on the input image,
-		// getMaskAfterSeamCarving() will return a mask, with the same dimensions as the
-		// resized image, where the mask values match the original mask values for the
-		// corresponding pixels.
-		// HINT: Once you remove (replicate) the chosen seams from the input image, you
-		// need to also remove (replicate) the matching entries from the mask as well.
 	}
 
+	/**
+	 * Sets the pixels in greyscale values.
+	 */
 	private void setGreyscale() {
 		logger.log("Converting to greyscale...");
 		int[][] result = new int[inHeight][inWidth];
@@ -156,7 +173,8 @@ public class SeamsCarver extends ImageProcessor {
 	}
 
 	/**
-	 * Calculate the gradient magnitude matrix.
+	 * Calculate the gradient magnitude initialization matrix
+	 * by calculating the energy of each pixel.
 	 */
 	private void initCostMatrix(int height, int width) {
 		logger.log("Initiating cost matrix...");
@@ -167,28 +185,44 @@ public class SeamsCarver extends ImageProcessor {
 		this.costMatrix = E;
 	}
 
+	/**
+	 * Calculates the Dynamic Programming recursive formula
+	 * for the cost matrix.
+	 */
 	private void calcForwardCostMatrix() {
 		logger.log("Calculating forward looking cost matrix...");
-		forEach(this::calcRecursiveCost);
+		forEach(this::calcCoordinateCost);
 		logger.log("Done calculating cost matrix.");
 	}
 
+	/**
+	 * Updates the cost matrix by recalculating the energies
+	 * and forward cost.
+	 */
 	private void updateForwardCostMatrix() {
 		setForEachWidth(inWidth - k);
 		this.initCostMatrix(inHeight, inWidth - k);
 		this.calcForwardCostMatrix();
 	}
 
+	/**
+	 * For a given new seam, updates all the relevant matrices:
+	 * - Image mask
+	 * - Greyscale values
+	 * - On reduce operation, shifts the pixels left on the temporary image.
+	 * On top of that, it calls for calculation of the next cost matrix.
+	 * @param seam - given seam.
+	 */
 	private void updateMatrices(int[] seam) {
 		logger.log("Updating matrices...");
-		// Update gradient to pixels who are left to the seam
+
 		for (int y = 0; y < costMatrix.length; y++) {
 			// Shift left all pixels that are right to the seam
 			for (int x = seam[y]; x < inWidth - k; x++) {
 				imageMask[y][x] = imageMask[y][x + 1];
 				greyscale[y][x] = greyscale[y][x + 1];
 
-				if (outWidth < inWidth) {
+				if (opReduce) {
 					// Relevant only for when reducing the image.
 					tempImg.setRGB(x, y, tempImg.getRGB(x + 1, y));
 				}
@@ -199,6 +233,12 @@ public class SeamsCarver extends ImageProcessor {
 		logger.log("Done updating matrices for seam #" + k);
 	}
 
+	/**
+	 * Calculates the energy of a pixel using gradient magnitude.
+	 * @param y - y coordinate
+	 * @param x - x coordinate
+	 * @return (long) the resulted energy.
+	 */
 	private long calcEnergy(int y, int x) {
 		int neighborX = (x < inWidth - 1 - k) ? x + 1 : x - 1;
 		int neighborY = (y < inHeight - 1) ? y + 1 : y - 1;
@@ -213,16 +253,30 @@ public class SeamsCarver extends ImageProcessor {
 		return Math.abs(deltaX) + Math.abs(deltaY);
 	}
 
+	/**
+	 * Find all seams.
+	 * @return a matrix of the original seams indexes.
+	 */
 	private int[][] findSeams() {
 		logger.log("Searching seams...");
+		// Seams indexes that correspond to the dynamic programming cost matrix.
 		shiftedSeams = new int[numOfSeams][inHeight];
+
+		// Seams indexes that correspond to their indexes on increasing operation.
 		increasedSeams = new int[numOfSeams][inHeight];
+
+		// Seams indexes that represent their original indexes.
 		int [][] seams = new int[numOfSeams][inHeight];
 
 		this.setGreyscale();
 		this.initCostMatrix(inHeight, inWidth);
 		this.calcForwardCostMatrix();
 
+		// In increase mode, while calculating indexes for each new seam,
+		// we want to check how many seams are preceding to the new ones,
+		// by comparing the indexes values.
+		// Therefore, initiate the relative 'cost matrix seams' indexes to
+		// large values to avoid counting empty 'zero' index seams.
 		for (int[] shiftedSeam : shiftedSeams) {
 			for (int j = 0; j < shiftedSeam.length; j++) {
 				shiftedSeam[j] = Integer.MAX_VALUE;
@@ -233,23 +287,34 @@ public class SeamsCarver extends ImageProcessor {
 			int[] seam = findSeam();
 			this.updateMatrices(seam);
 
-			seams[k - 1] = this.restoreSeamIdxs(seam, seams);
-			increasedSeams[k - 1] = this.calculateIncreasedSeamIdxs(seam);
+			if (!opReduce) {
+				// Relevant for increasing and showing the seams.
+				seams[k - 1] = this.restoreSeamIdxs(seam);
+				increasedSeams[k - 1] = this.calculateIncreasedSeamIdxs(seam);
+			}
+
 			shiftedSeams[k - 1] = seam;
 		}
 		logger.log("Done searching for new seams.");
 		return seams;
 	}
 
+	/**
+	 * By starting with the minimum value in the last row for
+	 * the cost matrix, backtrace the path of the seam.
+	 * @return - returns the seam indexes.
+	 */
 	private int[] findSeam() {
 		logger.log("Finding optimal seam #" + k);
 		int[] seam = new int[inHeight];
 
-		// Get the index of the minimum cost from the
+		// Get the index of the minimum cost value from the
 		// last row of the cost matrix.
 		int j = inHeight - 1;
 		int idx = this.findMinCostIdx(this.costMatrix[j]);
 
+		// Start from bottom and climb up using each
+		// pixel's parent value.
 		for (int i = seam.length - 1; i >= 0; i--) {
 			seam[i] = idx;
 			path p = costMatrix[j][idx].getParent();
@@ -261,49 +326,12 @@ public class SeamsCarver extends ImageProcessor {
 		return seam;
 	}
 
-	private int[] calculateIncreasedSeamIdxs(int[] seam){
-		int[] expected = new int[seam.length];
-
-		for (int i = 0; i < seam.length; i++){
-			int s = 0; // Number of seams preceding current seam
-			for (int[] shiftedSeam : shiftedSeams) {
-				if (seam[i] >= shiftedSeam[i]) s++;
-			}
-			expected[i] = seam[i] + (2 * s);
-		}
-
-		// We might have found the new seam in a smaller x to the the previous ones
-		// shift by 1 the previous ones.
-		for (int i = 0; i < seam.length; i++) {
-			for (int[] s : increasedSeams) {
-				if (expected[i] <= s[i]) s[i]++;
-			}
-		}
-
-		return expected;
-	}
-
-	private int[] restoreSeamIdxs(int[] seam, int[][] prevSeams) {
-		int[] restored = new int[seam.length];
-
-		for (int i = 0; i < seam.length; i++) {
-			restored[i] = seam[i];
-			for (int[] shiftedSeam : shiftedSeams) {
-				if (seam[i] >= shiftedSeam[i]) restored[i]++;
-			}
-		}
-
-		// Shift right all seams that have higher x's compared
-		// to the new seam.
-		for (int i = 0; i < seam.length; i++) {
-			for (int[] s : prevSeams) {
-				if (restored[i] <= s[i]) restored[i]++;
-			}
-		}
-
-		return restored;
-	}
-
+	/**
+	 * Find the index of the minimum value for a given
+	 * array of pixels.
+	 * @param arr - given EnergyPixel array.
+	 * @return the resulted index.
+	 */
 	private int findMinCostIdx(EnergyPixel[] arr) {
 		int minIdx = 0;
 		long min = arr[0].getEnergy();
@@ -318,7 +346,59 @@ public class SeamsCarver extends ImageProcessor {
 		return minIdx;
 	}
 
-	private void calcRecursiveCost(int y, int x) {
+	/**
+	 * Calculates the actual seam indexes when increasing the image.
+	 * This is done by checking how much seams are preceding to
+	 * the given seam.
+	 * @param seam
+	 * @return
+	 */
+	private int[] calculateIncreasedSeamIdxs(int[] seam){
+		int[] expected = new int[seam.length];
+
+		for (int i = 0; i < seam.length; i++){
+			int s = 0; // Number of seams preceding current seam
+			for (int[] shiftedSeam : shiftedSeams) {
+				if (seam[i] >= shiftedSeam[i]) s++;
+			}
+			expected[i] = seam[i] + (2 * s);
+		}
+
+		// If the new seam has a smaller x coordinate then the
+		// previous ones, shift them by 1 to the right.
+		for (int i = 0; i < seam.length; i++) {
+			for (int[] s : increasedSeams) {
+				if (expected[i] <= s[i]) s[i]++;
+			}
+		}
+
+		return expected;
+	}
+
+	/**
+	 * Calculates the original indexes of a given seam (which indexes
+	 * are relative to the current cost matrix).
+	 * @param seam
+	 * @return
+	 */
+	private int[] restoreSeamIdxs(int[] seam) {
+		int[] restored = new int[seam.length];
+
+		for (int i = 0; i < seam.length; i++) {
+			int s = 0; // Number of seams preceding current seam
+			for (int[] shiftedSeam : shiftedSeams) {
+				if (seam[i] >= shiftedSeam[i]) s++;
+			}
+			restored[i] = seam[i] + s;
+		}
+
+		return restored;
+	}
+
+	/**
+	 * Calculates and sets the cost for a given coordinate.
+	 */
+	private void calcCoordinateCost(int y, int x) {
 		if (y == 0) {
 			return; // Avoid calculating for base case - first row.
 		}
@@ -360,6 +440,9 @@ public class SeamsCarver extends ImageProcessor {
 		costMatrix[y][x].setParent(p);
 	}
 
+	/**
+	 * Returns the chosen parent path by the minimum value.
+	 */
 	private path getPathByMinimum(long a, long b, long c) {
 		long minVal = Math.min(a, Math.min(b, c));
 		if (minVal == a) return path.L;
