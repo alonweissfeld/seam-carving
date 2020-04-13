@@ -249,23 +249,23 @@ public class MenuWindow extends JFrame implements Logger {
 		int width = workingImage.getWidth();
 		RGBWeights rgbWeights = colorMixer.getRGBWeights();
 
-		// Find the maximum number of true values in a row.
+		// Find the maximum number of true values in a row
+		// in the mask.
 		int maxCount = getMaxTrueValuesInMask(tempMask);
 
-		// Bound the number of seams
 		while (maxCount > 0) {
-			System.out.println("Current maxCount: " + maxCount);
+			// Bound the number of seams to reduce in each use of
+			// the seam carver
 			int numOfSeamsToReduce = Math.min(maxCount, (width / 3) - 1);
 			int outWidth = width - numOfSeamsToReduce;
-			System.out.println("numOfSeams to reduce: " + numOfSeamsToReduce);
+
 			SeamsCarver sc = new SeamsCarver(this, result, outWidth,
 					rgbWeights, tempMask);
 
-			// Reduce image.
+			// Reduce the image and get the updated mask.
 			result = sc.resize();
 			tempMask = sc.getMaskAfterSeamCarving();
 			maxCount = getMaxTrueValuesInMask(tempMask);
-			System.out.println("After, maxCount: " + maxCount);
 		}
 
 		// Increase the image back to it's original size.
@@ -278,6 +278,11 @@ public class MenuWindow extends JFrame implements Logger {
 		new MaskPainterWindow(duplicateImage(), "Mask Painter", this).setVisible(true);
 	}
 
+	/**
+	 * Find the maximum number of true values per row in a given mask.
+	 * @param mask - matrix of booleans.
+	 * @return - the maximum number.
+	 */
 	private int getMaxTrueValuesInMask(boolean[][] mask) {
 		int maxCount = 0;
 		for (boolean[] row : mask) {
